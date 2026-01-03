@@ -1,5 +1,5 @@
 // ============================================
-// Financial Calculations Module - Enhanced
+// Financial Calculations Module - Ultra Enhanced
 // ============================================
 
 const TRADING_DAYS_PER_YEAR = 252;
@@ -37,6 +37,17 @@ function percentile(arr, p) {
 
 function median(arr) {
     return percentile(arr, 50);
+}
+
+function covariance(arr1, arr2) {
+    if (arr1.length !== arr2.length || arr1.length < 2) return 0;
+    const mean1 = mean(arr1);
+    const mean2 = mean(arr2);
+    let sum = 0;
+    for (let i = 0; i < arr1.length; i++) {
+        sum += (arr1[i] - mean1) * (arr2[i] - mean2);
+    }
+    return sum / (arr1.length - 1);
 }
 
 // ==========================================
@@ -114,6 +125,58 @@ function informationRatio(fundReturns, benchmarkReturns) {
     const trackingError = standardDeviation(excessReturns) * Math.sqrt(TRADING_DAYS_PER_YEAR);
     if (trackingError === 0) return 0;
     return avgExcess / trackingError;
+}
+
+// NEW: Omega Ratio
+function omegaRatio(dailyReturns, threshold = 0) {
+    const gains = dailyReturns.filter(r => r > threshold).map(r => r - threshold);
+    const losses = dailyReturns.filter(r => r <= threshold).map(r => threshold - r);
+    const sumGains = gains.reduce((a, b) => a + b, 0);
+    const sumLosses = losses.reduce((a, b) => a + b, 0);
+    return sumLosses === 0 ? Infinity : sumGains / sumLosses;
+}
+
+// NEW: Gain-to-Pain Ratio
+function gainToPainRatio(dailyReturns) {
+    const gains = dailyReturns.filter(r => r > 0).reduce((a, b) => a + b, 0);
+    const losses = Math.abs(dailyReturns.filter(r => r < 0).reduce((a, b) => a + b, 0));
+    return losses === 0 ? Infinity : gains / losses;
+}
+
+// NEW: Ulcer Index (measures depth and duration of drawdowns)
+function ulcerIndex(dailyReturns) {
+    const dd = drawdownSeries(dailyReturns);
+    const squaredDD = dd.map(d => d * d * 10000); // Convert to percentage squared
+    return Math.sqrt(mean(squaredDD));
+}
+
+// NEW: Pain Index (average drawdown)
+function painIndex(dailyReturns) {
+    const dd = drawdownSeries(dailyReturns);
+    return Math.abs(mean(dd));
+}
+
+// NEW: Treynor Ratio
+function treynorRatio(fundReturns, benchmarkReturns) {
+    const annRet = annualizedReturn(fundReturns);
+    const beta = calculateBeta(fundReturns, benchmarkReturns);
+    if (beta === 0) return 0;
+    return (annRet - RISK_FREE_RATE) / beta;
+}
+
+// NEW: Calculate Alpha (Jensen's Alpha)
+function calculateAlpha(fundReturns, benchmarkReturns) {
+    const fundAnnRet = annualizedReturn(fundReturns);
+    const benchAnnRet = annualizedReturn(benchmarkReturns);
+    const beta = calculateBeta(fundReturns, benchmarkReturns);
+    return fundAnnRet - (RISK_FREE_RATE + beta * (benchAnnRet - RISK_FREE_RATE));
+}
+
+// NEW: Tracking Error
+function trackingError(fundReturns, benchmarkReturns) {
+    if (fundReturns.length !== benchmarkReturns.length) return 0;
+    const excessReturns = fundReturns.map((r, i) => r - benchmarkReturns[i]);
+    return standardDeviation(excessReturns) * Math.sqrt(TRADING_DAYS_PER_YEAR);
 }
 
 // ==========================================
@@ -208,26 +271,110 @@ function recoveryTime(dailyReturns) {
     };
 }
 
+// NEW: Get all significant drawdown periods
+function getDrawdownPeriods(dailyReturns, dates, threshold = -0.05) {
+    const dd = drawdownSeries(dailyReturns);
+    const nav = calculateNAV(dailyReturns);
+    const periods = [];
+    let inDrawdown = false;
+    let start = 0;
+    let peak = nav[0];
+    let peakDate = dates[0];
+    let trough = nav[0];
+    let troughIdx = 0;
+
+    for (let i = 0; i < dd.length; i++) {
+        if (nav[i] > peak) {
+            peak = nav[i];
+            peakDate = dates[i];
+        }
+
+        if (dd[i] < threshold && !inDrawdown) {
+            inDrawdown = true;
+            start = i;
+            trough = nav[i];
+            troughIdx = i;
+        } else if (inDrawdown) {
+            if (nav[i] < trough) {
+                trough = nav[i];
+                troughIdx = i;
+            }
+            if (dd[i] >= -0.001) {
+                // Recovered
+                periods.push({
+                    peakDate: peakDate,
+                    troughDate: dates[troughIdx],
+                    recoveryDate: dates[i],
+                    drawdown: (trough - peak) / peak,
+                    durationToTrough: troughIdx - start,
+                    recoveryDuration: i - troughIdx,
+                    totalDuration: i - start,
+                    recovered: true
+                });
+                inDrawdown = false;
+                peak = nav[i];
+                peakDate = dates[i];
+            }
+        }
+    }
+
+    // Handle ongoing drawdown
+    if (inDrawdown) {
+        periods.push({
+            peakDate: peakDate,
+            troughDate: dates[troughIdx],
+            recoveryDate: null,
+            drawdown: (trough - peak) / peak,
+            durationToTrough: troughIdx - start,
+            recoveryDuration: null,
+            totalDuration: dd.length - start,
+            recovered: false
+        });
+    }
+
+    return periods.sort((a, b) => a.drawdown - b.drawdown);
+}
+
 // ==========================================
 // Value at Risk (VaR) & CVaR
 // ==========================================
 
 function valueAtRisk(dailyReturns, confidence = 0.95) {
-    // Historical VaR
     return percentile(dailyReturns, (1 - confidence) * 100);
 }
 
 function conditionalVaR(dailyReturns, confidence = 0.95) {
-    // Expected Shortfall - average of returns below VaR
     const var_threshold = valueAtRisk(dailyReturns, confidence);
     const tailReturns = dailyReturns.filter(r => r <= var_threshold);
     return tailReturns.length > 0 ? mean(tailReturns) : var_threshold;
 }
 
 function monthlyVaR(dailyReturns, confidence = 0.95) {
-    // Scale daily VaR to monthly (approximately)
     const dailyVar = valueAtRisk(dailyReturns, confidence);
-    return dailyVar * Math.sqrt(21); // ~21 trading days per month
+    return dailyVar * Math.sqrt(21);
+}
+
+// NEW: Parametric VaR (assuming normal distribution)
+function parametricVaR(dailyReturns, confidence = 0.95) {
+    const mu = mean(dailyReturns);
+    const sigma = standardDeviation(dailyReturns);
+    const zScores = { 0.95: -1.645, 0.99: -2.326 };
+    const z = zScores[confidence] || -1.645;
+    return mu + z * sigma;
+}
+
+// NEW: Cornish-Fisher VaR (adjusted for skewness and kurtosis)
+function cornishFisherVaR(dailyReturns, confidence = 0.95) {
+    const mu = mean(dailyReturns);
+    const sigma = standardDeviation(dailyReturns);
+    const s = skewness(dailyReturns);
+    const k = kurtosis(dailyReturns);
+    const zScores = { 0.95: -1.645, 0.99: -2.326 };
+    const z = zScores[confidence] || -1.645;
+
+    // Cornish-Fisher expansion
+    const cfZ = z + (z*z - 1) * s / 6 + (z*z*z - 3*z) * k / 24 - (2*z*z*z - 5*z) * s*s / 36;
+    return mu + cfZ * sigma;
 }
 
 // ==========================================
@@ -283,6 +430,29 @@ function bestWorstPeriods(dailyReturns) {
         daysAbove2Pct: dailyReturns.filter(r => r > 0.02).length,
         daysBelow2Pct: dailyReturns.filter(r => r < -0.02).length
     };
+}
+
+// NEW: Calculate consecutive wins/losses
+function consecutiveStats(dailyReturns) {
+    let maxWins = 0, maxLosses = 0;
+    let currentWins = 0, currentLosses = 0;
+
+    for (const ret of dailyReturns) {
+        if (ret > 0) {
+            currentWins++;
+            currentLosses = 0;
+            maxWins = Math.max(maxWins, currentWins);
+        } else if (ret < 0) {
+            currentLosses++;
+            currentWins = 0;
+            maxLosses = Math.max(maxLosses, currentLosses);
+        } else {
+            currentWins = 0;
+            currentLosses = 0;
+        }
+    }
+
+    return { maxConsecutiveWins: maxWins, maxConsecutiveLosses: maxLosses };
 }
 
 // ==========================================
@@ -379,6 +549,17 @@ function correlationMatrix(fundsReturns) {
     return matrix;
 }
 
+// NEW: Tail Dependence (lower tail correlation)
+function lowerTailDependence(arr1, arr2, quantile = 0.1) {
+    const threshold1 = percentile(arr1, quantile * 100);
+    const threshold2 = percentile(arr2, quantile * 100);
+
+    const joint = arr1.filter((r, i) => r <= threshold1 && arr2[i] <= threshold2).length;
+    const marginal = arr1.filter(r => r <= threshold1).length;
+
+    return marginal === 0 ? 0 : joint / marginal;
+}
+
 // ==========================================
 // Rolling Calculations
 // ==========================================
@@ -421,6 +602,96 @@ function rollingCorrelation(fundReturns, benchmarkReturns, window = 252) {
         const benchSlice = benchmarkReturns.slice(i - window + 1, i + 1);
         results.push(correlation(fundSlice, benchSlice));
     }
+    return results;
+}
+
+// NEW: Rolling Alpha
+function rollingAlpha(fundReturns, benchmarkReturns, window = 252) {
+    const results = [];
+    for (let i = window - 1; i < fundReturns.length; i++) {
+        const fundSlice = fundReturns.slice(i - window + 1, i + 1);
+        const benchSlice = benchmarkReturns.slice(i - window + 1, i + 1);
+        results.push(calculateAlpha(fundSlice, benchSlice));
+    }
+    return results;
+}
+
+// NEW: Rolling Information Ratio
+function rollingInformationRatio(fundReturns, benchmarkReturns, window = 252) {
+    const results = [];
+    for (let i = window - 1; i < fundReturns.length; i++) {
+        const fundSlice = fundReturns.slice(i - window + 1, i + 1);
+        const benchSlice = benchmarkReturns.slice(i - window + 1, i + 1);
+        results.push(informationRatio(fundSlice, benchSlice));
+    }
+    return results;
+}
+
+// ==========================================
+// Regime Detection
+// ==========================================
+
+// NEW: Detect market regimes (bull/bear/sideways)
+function detectRegimes(benchmarkReturns, dates, window = 63) {
+    const regimes = [];
+    const rollingRet = rollingReturn(benchmarkReturns, window);
+    const rollingVol = rollingVolatility(benchmarkReturns, window);
+
+    for (let i = 0; i < rollingRet.length; i++) {
+        const ret = rollingRet[i];
+        const vol = rollingVol[i];
+
+        let regime;
+        if (ret > 0.1 && vol < 0.2) {
+            regime = 'bull';
+        } else if (ret < -0.05) {
+            regime = 'bear';
+        } else if (vol > 0.25) {
+            regime = 'crisis';
+        } else {
+            regime = 'sideways';
+        }
+
+        regimes.push({
+            date: dates[i + window - 1],
+            regime: regime,
+            return: ret,
+            volatility: vol
+        });
+    }
+
+    return regimes;
+}
+
+// NEW: Calculate performance by regime
+function performanceByRegime(fundReturns, benchmarkReturns, dates) {
+    const regimes = detectRegimes(benchmarkReturns, dates);
+    const results = {
+        bull: { returns: [], avgReturn: 0, count: 0 },
+        bear: { returns: [], avgReturn: 0, count: 0 },
+        crisis: { returns: [], avgReturn: 0, count: 0 },
+        sideways: { returns: [], avgReturn: 0, count: 0 }
+    };
+
+    const offset = dates.length - regimes.length;
+
+    for (let i = 0; i < regimes.length; i++) {
+        const fundIdx = i + offset;
+        if (fundIdx < fundReturns.length) {
+            const regime = regimes[i].regime;
+            results[regime].returns.push(fundReturns[fundIdx]);
+            results[regime].count++;
+        }
+    }
+
+    for (const regime of Object.keys(results)) {
+        if (results[regime].returns.length > 0) {
+            results[regime].avgReturn = annualizedReturn(results[regime].returns);
+            results[regime].volatility = annualizedVolatility(results[regime].returns);
+            results[regime].sharpe = sharpeRatio(results[regime].returns);
+        }
+    }
+
     return results;
 }
 
@@ -489,7 +760,6 @@ function ytdReturns(dailyReturns, dates) {
 // ==========================================
 
 function portfolioReturn(weights, returns) {
-    // returns is array of daily returns arrays for each fund
     const n = returns[0].length;
     const portfolioReturns = [];
 
@@ -540,7 +810,6 @@ function covarianceMatrix(fundsReturns) {
     return matrix;
 }
 
-// Simple optimization using gradient descent
 function optimizeForSharpe(fundsReturns, iterations = 1000) {
     const n = fundsReturns.length;
     let weights = Array(n).fill(1 / n);
@@ -549,8 +818,6 @@ function optimizeForSharpe(fundsReturns, iterations = 1000) {
 
     for (let iter = 0; iter < iterations; iter++) {
         const lr = 0.01 / (1 + iter * 0.001);
-
-        // Calculate gradients (simplified)
         const portfolioRet = portfolioReturn(weights, fundsReturns);
         const currentSharpe = sharpeRatio(portfolioRet);
 
@@ -559,7 +826,6 @@ function optimizeForSharpe(fundsReturns, iterations = 1000) {
             const newWeights = [...weights];
             newWeights[i] += delta;
 
-            // Normalize
             const sum = newWeights.reduce((a, b) => a + b, 0);
             for (let j = 0; j < n; j++) newWeights[j] /= sum;
 
@@ -569,7 +835,6 @@ function optimizeForSharpe(fundsReturns, iterations = 1000) {
             weights[i] += lr * (newSharpe - currentSharpe) / delta;
         }
 
-        // Normalize and enforce non-negative
         weights = weights.map(w => Math.max(0, w));
         const sum = weights.reduce((a, b) => a + b, 0);
         weights = weights.map(w => w / sum);
@@ -586,11 +851,73 @@ function riskParityWeights(fundsReturns) {
 }
 
 function minVolatilityWeights(fundsReturns) {
-    // Simple min vol using inverse variance
     const vars = fundsReturns.map(r => Math.pow(annualizedVolatility(r), 2));
     const invVars = vars.map(v => v > 0 ? 1 / v : 0);
     const sum = invVars.reduce((a, b) => a + b, 0);
     return invVars.map(v => v / sum);
+}
+
+// NEW: Maximum Diversification Portfolio
+function maxDiversificationWeights(fundsReturns) {
+    const vols = fundsReturns.map(r => annualizedVolatility(r));
+    const corrMatrix = correlationMatrix(fundsReturns);
+    const n = fundsReturns.length;
+
+    // Simple heuristic: weight inversely by average correlation
+    const avgCorr = vols.map((_, i) => {
+        let sum = 0;
+        for (let j = 0; j < n; j++) {
+            if (i !== j) sum += Math.abs(corrMatrix[i][j]);
+        }
+        return sum / (n - 1);
+    });
+
+    const invCorr = avgCorr.map(c => 1 / (c + 0.01));
+    const invVol = vols.map(v => v > 0 ? 1 / v : 0);
+    const combined = invCorr.map((c, i) => c * invVol[i]);
+    const total = combined.reduce((a, b) => a + b, 0);
+
+    return combined.map(c => c / total);
+}
+
+// NEW: Generate efficient frontier points
+function generateEfficientFrontier(fundsReturns, numPoints = 50) {
+    const n = fundsReturns.length;
+    const points = [];
+
+    // Generate random portfolios
+    for (let p = 0; p < numPoints * 10; p++) {
+        const weights = [];
+        let sum = 0;
+        for (let i = 0; i < n; i++) {
+            const w = Math.random();
+            weights.push(w);
+            sum += w;
+        }
+        // Normalize
+        for (let i = 0; i < n; i++) weights[i] /= sum;
+
+        const portRets = portfolioReturn(weights, fundsReturns);
+        const ret = annualizedReturn(portRets);
+        const vol = annualizedVolatility(portRets);
+        const sharpe = sharpeRatio(portRets);
+
+        points.push({ weights, ret, vol, sharpe });
+    }
+
+    // Sort by return and find efficient frontier (highest return for each vol level)
+    points.sort((a, b) => a.vol - b.vol);
+
+    const frontier = [];
+    let maxRet = -Infinity;
+    for (const point of points) {
+        if (point.ret > maxRet) {
+            frontier.push(point);
+            maxRet = point.ret;
+        }
+    }
+
+    return { allPoints: points, frontier };
 }
 
 // ==========================================
@@ -601,7 +928,6 @@ function monteCarloSimulation(dailyReturns, months = 12, simulations = 500) {
     const monthlyRets = [];
     const daysPerMonth = 21;
 
-    // Convert daily to monthly returns
     for (let i = 0; i < dailyReturns.length; i += daysPerMonth) {
         const slice = dailyReturns.slice(i, i + daysPerMonth);
         if (slice.length >= daysPerMonth * 0.8) {
@@ -616,7 +942,6 @@ function monteCarloSimulation(dailyReturns, months = 12, simulations = 500) {
         const path = [100];
 
         for (let m = 0; m < months; m++) {
-            // Random sample from historical monthly returns
             const randomIdx = Math.floor(Math.random() * monthlyRets.length);
             cumReturn *= (1 + monthlyRets[randomIdx]);
             path.push(100 * cumReturn);
@@ -628,7 +953,6 @@ function monteCarloSimulation(dailyReturns, months = 12, simulations = 500) {
         });
     }
 
-    // Sort by final return
     results.sort((a, b) => a.finalReturn - b.finalReturn);
 
     return {
@@ -636,8 +960,49 @@ function monteCarloSimulation(dailyReturns, months = 12, simulations = 500) {
         finalReturns: results.map(r => r.finalReturn),
         median: results[Math.floor(simulations / 2)].finalReturn,
         percentile5: results[Math.floor(simulations * 0.05)].finalReturn,
+        percentile25: results[Math.floor(simulations * 0.25)].finalReturn,
+        percentile75: results[Math.floor(simulations * 0.75)].finalReturn,
         percentile95: results[Math.floor(simulations * 0.95)].finalReturn,
-        probLoss: results.filter(r => r.finalReturn < 0).length / simulations
+        probLoss: results.filter(r => r.finalReturn < 0).length / simulations,
+        expectedReturn: mean(results.map(r => r.finalReturn)),
+        volatility: standardDeviation(results.map(r => r.finalReturn))
+    };
+}
+
+// NEW: Bootstrap confidence intervals
+function bootstrapStats(dailyReturns, numBootstraps = 1000) {
+    const stats = {
+        sharpe: [],
+        annReturn: [],
+        maxDD: []
+    };
+
+    const n = dailyReturns.length;
+
+    for (let b = 0; b < numBootstraps; b++) {
+        const sample = [];
+        for (let i = 0; i < n; i++) {
+            sample.push(dailyReturns[Math.floor(Math.random() * n)]);
+        }
+
+        stats.sharpe.push(sharpeRatio(sample));
+        stats.annReturn.push(annualizedReturn(sample));
+        stats.maxDD.push(maxDrawdown(sample));
+    }
+
+    return {
+        sharpe: {
+            mean: mean(stats.sharpe),
+            ci95: [percentile(stats.sharpe, 2.5), percentile(stats.sharpe, 97.5)]
+        },
+        annReturn: {
+            mean: mean(stats.annReturn),
+            ci95: [percentile(stats.annReturn, 2.5), percentile(stats.annReturn, 97.5)]
+        },
+        maxDD: {
+            mean: mean(stats.maxDD),
+            ci95: [percentile(stats.maxDD, 2.5), percentile(stats.maxDD, 97.5)]
+        }
     };
 }
 
@@ -658,23 +1023,100 @@ function stressTestReturn(dailyReturns, dates, startDate, endDate) {
 }
 
 function hypotheticalStress(beta, marketMove) {
-    // Simple linear estimate based on beta
     return beta * marketMove;
+}
+
+// NEW: Factor-based stress testing
+function factorStressTest(fundReturns, benchmarkReturns, scenarios) {
+    const beta = calculateBeta(fundReturns, benchmarkReturns);
+    const alpha = calculateAlpha(fundReturns, benchmarkReturns);
+    const annVol = annualizedVolatility(fundReturns);
+
+    return scenarios.map(scenario => ({
+        name: scenario.name,
+        marketMove: scenario.marketMove,
+        expectedFundReturn: alpha / 12 + beta * scenario.marketMove + (scenario.volMultiplier || 1) * annVol * (scenario.volShock || 0),
+        beta: beta
+    }));
+}
+
+// ==========================================
+// Data Filtering by Date Range
+// ==========================================
+
+function filterByDateRange(dailyReturns, dates, startDate, endDate) {
+    const start = startDate ? new Date(startDate) : new Date(0);
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const filteredReturns = [];
+    const filteredDates = [];
+
+    for (let i = 0; i < dates.length; i++) {
+        if (dates[i] >= start && dates[i] <= end) {
+            filteredReturns.push(dailyReturns[i]);
+            filteredDates.push(dates[i]);
+        }
+    }
+
+    return { returns: filteredReturns, dates: filteredDates };
+}
+
+function getDateRangeFromSelection(selection, dates) {
+    const now = new Date();
+    const lastDate = dates[dates.length - 1];
+    let startDate = dates[0];
+
+    switch (selection) {
+        case 'ytd':
+            startDate = new Date(now.getFullYear(), 0, 1);
+            break;
+        case '1y':
+            startDate = new Date(now);
+            startDate.setFullYear(startDate.getFullYear() - 1);
+            break;
+        case '3y':
+            startDate = new Date(now);
+            startDate.setFullYear(startDate.getFullYear() - 3);
+            break;
+        case '5y':
+            startDate = new Date(now);
+            startDate.setFullYear(startDate.getFullYear() - 5);
+            break;
+        case 'all':
+        default:
+            startDate = dates[0];
+    }
+
+    return { startDate, endDate: lastDate };
 }
 
 // ==========================================
 // Get All Stats
 // ==========================================
 
-function getAllFundStats(fund) {
-    const returns = fund.dailyReturns;
-    const dates = fund.dates;
-    const benchReturns = fund.benchmarkReturns;
+function getAllFundStats(fund, dateRange = null) {
+    let returns = fund.dailyReturns;
+    let dates = fund.dates;
+    let benchReturns = fund.benchmarkReturns;
+
+    if (dateRange && dateRange.startDate) {
+        const filtered = filterByDateRange(returns, dates, dateRange.startDate, dateRange.endDate);
+        const filteredBench = filterByDateRange(benchReturns, dates, dateRange.startDate, dateRange.endDate);
+        returns = filtered.returns;
+        dates = filtered.dates;
+        benchReturns = filteredBench.returns;
+    }
+
+    if (returns.length === 0) {
+        return null;
+    }
+
     const maxDDInfo = maxDrawdownWithDate(returns, dates);
     const monthlyRets = getMonthlyReturnsArray(returns, dates);
     const bwPeriods = bestWorstPeriods(returns);
     const ddDuration = drawdownDuration(returns, dates);
     const recovery = recoveryTime(returns);
+    const consec = consecutiveStats(returns);
 
     return {
         // Basic returns
@@ -686,6 +1128,10 @@ function getAllFundStats(fund) {
         sharpe: sharpeRatio(returns),
         sortino: sortinoRatio(returns),
         calmar: calmarRatio(returns),
+        omega: omegaRatio(returns),
+        gainToPain: gainToPainRatio(returns),
+        ulcerIndex: ulcerIndex(returns),
+        treynor: treynorRatio(returns, benchReturns),
 
         // Drawdown
         maxDD: maxDDInfo.value,
@@ -693,6 +1139,7 @@ function getAllFundStats(fund) {
         avgDD: averageDrawdown(returns),
         maxDDDuration: ddDuration,
         recoveryTime: recovery,
+        painIndex: painIndex(returns),
 
         // VaR
         var95: valueAtRisk(returns, 0.95),
@@ -700,6 +1147,8 @@ function getAllFundStats(fund) {
         varMonthly95: monthlyVaR(returns, 0.95),
         cvar95: conditionalVaR(returns, 0.95),
         cvar99: conditionalVaR(returns, 0.99),
+        parametricVar95: parametricVaR(returns, 0.95),
+        cfVar95: cornishFisherVaR(returns, 0.95),
 
         // Distribution
         skewness: skewness(returns),
@@ -710,13 +1159,20 @@ function getAllFundStats(fund) {
         bestDay: bwPeriods.bestDay,
         worstDay: bwPeriods.worstDay,
         daysBelow2Pct: bwPeriods.daysBelow2Pct,
+        maxConsecutiveWins: consec.maxConsecutiveWins,
+        maxConsecutiveLosses: consec.maxConsecutiveLosses,
+        profitLossRatio: profitLossRatio(returns),
 
         // Benchmark relative
         beta: calculateBeta(returns, benchReturns),
+        alpha: calculateAlpha(returns, benchReturns),
         correlation: correlation(returns, benchReturns),
+        informationRatio: informationRatio(returns, benchReturns),
+        trackingError: trackingError(returns, benchReturns),
         upCapture: upCaptureRatio(returns, benchReturns),
         downCapture: downCaptureRatio(returns, benchReturns),
         captureRatio: captureRatio(returns, benchReturns),
+        tailDependence: lowerTailDependence(returns, benchReturns),
 
         // Monthly
         monthlyReturns: monthlyReturns(returns, dates),
@@ -725,7 +1181,10 @@ function getAllFundStats(fund) {
         worstMonth: monthlyRets.length > 0 ? Math.min(...monthlyRets) : 0,
         avgMonthlyReturn: mean(monthlyRets),
         positiveMonths: monthlyRets.filter(r => r > 0).length,
-        totalMonths: monthlyRets.length
+        totalMonths: monthlyRets.length,
+
+        // Drawdown periods
+        drawdownPeriods: getDrawdownPeriods(returns, dates)
     };
 }
 
@@ -746,4 +1205,9 @@ function formatNumber(value, decimals = 2) {
 function formatDate(date) {
     if (!date) return '-';
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatDateShort(date) {
+    if (!date) return '-';
+    return date.toLocaleDateString('en-US', { year: '2-digit', month: 'short' });
 }
