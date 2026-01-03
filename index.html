@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apex Capital Analytics | Hedge Fund Performance Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">◆</div>
+                <span>Apex Capital</span>
+            </div>
+
+            <div class="fund-selector">
+                <label for="fundSearch">Select Fund</label>
+                <div class="search-wrapper">
+                    <input type="text" id="fundSearch" placeholder="Search funds..." autocomplete="off">
+                    <div class="search-icon">⌕</div>
+                </div>
+                <div id="fundDropdown" class="fund-dropdown"></div>
+            </div>
+
+            <nav class="nav-tabs">
+                <button class="nav-tab active" data-tab="overview">
+                    <span class="tab-icon">◐</span>
+                    Overview
+                </button>
+                <button class="nav-tab" data-tab="returns">
+                    <span class="tab-icon">▤</span>
+                    Returns Table
+                </button>
+                <button class="nav-tab" data-tab="charts">
+                    <span class="tab-icon">◔</span>
+                    Analytics
+                </button>
+                <button class="nav-tab" data-tab="peers">
+                    <span class="tab-icon">◫</span>
+                    Peer Analysis
+                </button>
+                <button class="nav-tab" data-tab="rankings">
+                    <span class="tab-icon">▥</span>
+                    Rankings
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="data-info">
+                    <span>Data as of</span>
+                    <strong id="dataDate"></strong>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="header">
+                <div class="header-left">
+                    <h1 id="pageTitle">Fund Overview</h1>
+                    <span id="selectedFundName" class="selected-fund"></span>
+                </div>
+                <div class="header-right">
+                    <div class="header-stat">
+                        <span class="stat-label">AUM</span>
+                        <span id="headerAum" class="stat-value">-</span>
+                    </div>
+                    <div class="header-stat">
+                        <span class="stat-label">Strategy</span>
+                        <span id="headerStrategy" class="stat-value">-</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Overview Tab -->
+            <section id="tab-overview" class="tab-content active">
+                <div class="stats-grid">
+                    <div class="stat-card highlight">
+                        <div class="stat-card-label">Total Return (ITD)</div>
+                        <div id="statTotalReturn" class="stat-card-value">-</div>
+                        <div id="statTotalReturnSub" class="stat-card-sub"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Annualized Return</div>
+                        <div id="statAnnReturn" class="stat-card-value">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Annualized Volatility</div>
+                        <div id="statAnnVol" class="stat-card-value">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Sharpe Ratio</div>
+                        <div id="statSharpe" class="stat-card-value">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Sortino Ratio</div>
+                        <div id="statSortino" class="stat-card-value">-</div>
+                    </div>
+                    <div class="stat-card negative">
+                        <div class="stat-card-label">Max Drawdown</div>
+                        <div id="statMaxDD" class="stat-card-value">-</div>
+                        <div id="statMaxDDDate" class="stat-card-sub"></div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Calmar Ratio</div>
+                        <div id="statCalmar" class="stat-card-value">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Win Rate</div>
+                        <div id="statWinRate" class="stat-card-value">-</div>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-container full-width">
+                        <h3>Cumulative Performance</h3>
+                        <div id="chartCumulative" class="chart"></div>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-container half-width">
+                        <h3>Monthly Returns Distribution</h3>
+                        <div id="chartDistribution" class="chart"></div>
+                    </div>
+                    <div class="chart-container half-width">
+                        <h3>Return by Year</h3>
+                        <div id="chartYearlyReturns" class="chart"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Returns Table Tab -->
+            <section id="tab-returns" class="tab-content">
+                <div class="table-controls">
+                    <div class="table-title">Monthly Returns (%)</div>
+                </div>
+                <div class="table-wrapper">
+                    <table id="monthlyReturnsTable" class="data-table returns-table">
+                        <thead></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Charts Tab -->
+            <section id="tab-charts" class="tab-content">
+                <div class="chart-row">
+                    <div class="chart-container full-width">
+                        <h3>Drawdown Analysis</h3>
+                        <div id="chartDrawdown" class="chart"></div>
+                    </div>
+                </div>
+                <div class="chart-row">
+                    <div class="chart-container half-width">
+                        <h3>Rolling 12-Month Return</h3>
+                        <div id="chartRollingReturn" class="chart"></div>
+                    </div>
+                    <div class="chart-container half-width">
+                        <h3>Rolling 12-Month Volatility</h3>
+                        <div id="chartRollingVol" class="chart"></div>
+                    </div>
+                </div>
+                <div class="chart-row">
+                    <div class="chart-container half-width">
+                        <h3>Rolling 12-Month Sharpe Ratio</h3>
+                        <div id="chartRollingSharpe" class="chart"></div>
+                    </div>
+                    <div class="chart-container half-width">
+                        <h3>Rolling Beta to S&P 500</h3>
+                        <div id="chartRollingBeta" class="chart"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Peer Analysis Tab -->
+            <section id="tab-peers" class="tab-content">
+                <div class="table-controls">
+                    <div class="table-title">Peer Group Comparison</div>
+                    <div class="filter-group">
+                        <label>Strategy Filter:</label>
+                        <select id="strategyFilter">
+                            <option value="all">All Strategies</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table id="peerTable" class="data-table peer-table sortable">
+                        <thead></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <div class="chart-row" style="margin-top: 2rem;">
+                    <div class="chart-container full-width">
+                        <h3>Risk-Return Scatter</h3>
+                        <div id="chartRiskReturn" class="chart"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Rankings Tab -->
+            <section id="tab-rankings" class="tab-content">
+                <div class="rankings-controls">
+                    <div class="control-group">
+                        <label>Metric:</label>
+                        <select id="rankingMetric">
+                            <option value="annReturn">Annualized Return</option>
+                            <option value="annVol">Annualized Volatility</option>
+                            <option value="sharpe">Sharpe Ratio</option>
+                            <option value="sortino">Sortino Ratio</option>
+                            <option value="maxDD">Max Drawdown</option>
+                            <option value="calmar">Calmar Ratio</option>
+                            <option value="ytdReturn">YTD Return</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label>Order:</label>
+                        <select id="rankingOrder">
+                            <option value="desc">Highest First</option>
+                            <option value="asc">Lowest First</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="chart-container full-width">
+                    <h3 id="rankingChartTitle">Fund Rankings by Annualized Return</h3>
+                    <div id="chartRankings" class="chart tall"></div>
+                </div>
+
+                <div class="rankings-table-section">
+                    <div class="table-wrapper">
+                        <table id="rankingsTable" class="data-table rankings-table">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="data.js"></script>
+    <script src="calculations.js"></script>
+    <script src="charts.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
