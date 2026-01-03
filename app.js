@@ -1,207 +1,358 @@
 // ============================================
-// Main Application Module
+// Main Application Module - Enhanced
 // ============================================
 
-// State
 let selectedFundId = 0;
 let allFundsStats = {};
+let selectedCompare = [0, 1];
+let portfolioWeights = {};
 
-// Initialize application
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    // Calculate stats for all funds
-    FUND_DATA.funds.forEach((fund, index) => {
-        allFundsStats[index] = getAllFundStats(fund);
-    });
-
-    // Set data date
+    FUND_DATA.funds.forEach((fund, index) => { allFundsStats[index] = getAllFundStats(fund); });
     document.getElementById('dataDate').textContent = formatDate(FUND_DATA.lastUpdate);
-
-    // Initialize UI
     initializeFundSelector();
     initializeNavigation();
     initializeStrategyFilter();
     initializeRankingsControls();
-
-    // Load first fund
+    initializeThemeToggle();
+    initializeExportModal();
+    initializeDateRange();
+    initializeCompareTab();
+    initializeCorrelationTab();
+    initializePortfolioBuilder();
+    initializeStressTesting();
     selectFund(0);
 });
 
-// Fund Selector
-function initializeFundSelector() {
-    const searchInput = document.getElementById('fundSearch');
-    const dropdown = document.getElementById('fundDropdown');
+// Theme Toggle
+function initializeThemeToggle() {
+    const btn = document.getElementById('themeToggle');
+    const saved = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+    btn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
+    });
+}
 
-    // Populate dropdown
-    function renderDropdown(filter = '') {
-        dropdown.innerHTML = '';
-        const filtered = FUND_DATA.funds.filter(f =>
-            f.name.toLowerCase().includes(filter.toLowerCase()) ||
-            f.strategy.toLowerCase().includes(filter.toLowerCase())
-        );
+// Export Modal
+function initializeExportModal() {
+    document.getElementById('exportBtn').addEventListener('click', () => document.getElementById('exportModal').classList.remove('hidden'));
+}
+function closeExportModal() { document.getElementById('exportModal').classList.add('hidden'); }
 
-        filtered.forEach(fund => {
-            const item = document.createElement('div');
-            item.className = 'fund-dropdown-item';
-            item.innerHTML = `
-                <div class="fund-name">${fund.name}</div>
-                <div class="fund-strategy">${fund.strategy}</div>
-            `;
-            item.addEventListener('click', () => {
-                selectFund(fund.id);
-                dropdown.classList.remove('show');
-                searchInput.value = fund.name;
-            });
-            dropdown.appendChild(item);
+function exportToCSV(type) {
+    const fund = FUND_DATA.funds[selectedFundId];
+    const stats = allFundsStats[selectedFundId];
+    let csv = '', filename = '';
+
+    if (type === 'returns') {
+        csv = 'Year,Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec,YTD\n';
+        Object.keys(stats.monthlyReturns).sort().reverse().forEach(year => {
+            const row = [year];
+            for (let m = 0; m < 12; m++) row.push(stats.monthlyReturns[year][m] !== undefined ? (stats.monthlyReturns[year][m] * 100).toFixed(2) : '');
+            row.push((stats.ytdReturns[year] * 100).toFixed(2));
+            csv += row.join(',') + '\n';
         });
+        filename = `${fund.name.replace(/\s+/g, '_')}_monthly_returns.csv`;
+    } else if (type === 'stats') {
+        csv = 'Metric,Value\n';
+        csv += `Total Return,${formatPercent(stats.totalReturn)}\n`;
+        csv += `Annualized Return,${formatPercent(stats.annReturn)}\n`;
+        csv += `Annualized Volatility,${formatPercent(stats.annVol)}\n`;
+        csv += `Sharpe Ratio,${formatNumber(stats.sharpe)}\n`;
+        csv += `Sortino Ratio,${formatNumber(stats.sortino)}\n`;
+        csv += `Max Drawdown,${formatPercent(stats.maxDD)}\n`;
+        csv += `Calmar Ratio,${formatNumber(stats.calmar)}\n`;
+        csv += `Beta,${formatNumber(stats.beta)}\n`;
+        csv += `VaR 95%,${formatPercent(stats.var95)}\n`;
+        filename = `${fund.name.replace(/\s+/g, '_')}_statistics.csv`;
+    } else if (type === 'daily') {
+        csv = 'Date,Return\n';
+        fund.dates.forEach((d, i) => csv += `${d.toISOString().split('T')[0]},${(fund.dailyReturns[i] * 100).toFixed(4)}\n`);
+        filename = `${fund.name.replace(/\s+/g, '_')}_daily_returns.csv`;
+    } else if (type === 'peer') {
+        csv = 'Fund,Strategy,Ann Return,Ann Vol,Sharpe,Sortino,Max DD,Calmar\n';
+        FUND_DATA.funds.forEach((f, i) => {
+            const s = allFundsStats[i];
+            csv += `${f.name},${f.strategy},${(s.annReturn*100).toFixed(2)},${(s.annVol*100).toFixed(2)},${s.sharpe.toFixed(2)},${s.sortino.toFixed(2)},${(s.maxDD*100).toFixed(2)},${s.calmar.toFixed(2)}\n`;
+        });
+        filename = 'peer_comparison.csv';
     }
 
-    searchInput.addEventListener('focus', () => {
-        renderDropdown(searchInput.value);
-        dropdown.classList.add('show');
-    });
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    closeExportModal();
+}
 
-    searchInput.addEventListener('input', (e) => {
-        renderDropdown(e.target.value);
-        dropdown.classList.add('show');
+// Date Range
+function initializeDateRange() {
+    const select = document.getElementById('dateRangeSelect');
+    const custom = document.getElementById('customDateRange');
+    select.addEventListener('change', () => {
+        custom.classList.toggle('hidden', select.value !== 'custom');
+        if (select.value !== 'custom') selectFund(selectedFundId);
     });
+}
 
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('.fund-selector')) {
-            dropdown.classList.remove('show');
-        }
-    });
+// Fund Selector
+function initializeFundSelector() {
+    const input = document.getElementById('fundSearch');
+    const dropdown = document.getElementById('fundDropdown');
+    function render(filter = '') {
+        dropdown.innerHTML = '';
+        FUND_DATA.funds.filter(f => f.name.toLowerCase().includes(filter.toLowerCase()) || f.strategy.toLowerCase().includes(filter.toLowerCase()))
+            .forEach(fund => {
+                const item = document.createElement('div');
+                item.className = 'fund-dropdown-item';
+                item.innerHTML = `<div class="fund-name">${fund.name}</div><div class="fund-strategy">${fund.strategy}</div>`;
+                item.addEventListener('click', () => { selectFund(fund.id); dropdown.classList.remove('show'); input.value = fund.name; });
+                dropdown.appendChild(item);
+            });
+    }
+    input.addEventListener('focus', () => { render(input.value); dropdown.classList.add('show'); });
+    input.addEventListener('input', (e) => { render(e.target.value); dropdown.classList.add('show'); });
+    document.addEventListener('click', (e) => { if (!e.target.closest('.fund-selector')) dropdown.classList.remove('show'); });
 }
 
 // Navigation
 function initializeNavigation() {
     const tabs = document.querySelectorAll('.nav-tab');
-    const pageTitles = {
-        overview: 'Fund Overview',
-        returns: 'Historical Returns',
-        charts: 'Analytics & Charts',
-        peers: 'Peer Group Analysis',
-        rankings: 'Fund Rankings'
-    };
-
+    const titles = { overview: 'Fund Overview', returns: 'Historical Returns', risk: 'Risk Analysis', charts: 'Analytics', compare: 'Compare Funds', correlation: 'Correlations', peers: 'Peer Analysis', portfolio: 'Portfolio Builder', stress: 'Stress Testing', rankings: 'Rankings' };
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
-            // Update active tab
             tabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-
-            // Show corresponding content
-            const tabName = tab.dataset.tab;
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            document.getElementById(`tab-${tabName}`).classList.add('active');
-
-            // Update page title
-            document.getElementById('pageTitle').textContent = pageTitles[tabName];
-
-            // Refresh charts if needed (Plotly resize issue)
-            setTimeout(() => {
-                window.dispatchEvent(new Event('resize'));
-            }, 100);
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+            document.getElementById('pageTitle').textContent = titles[tab.dataset.tab];
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
         });
     });
 }
 
-// Strategy filter for peer analysis
+// Strategy Filter
 function initializeStrategyFilter() {
     const filter = document.getElementById('strategyFilter');
-    const strategies = [...new Set(FUND_DATA.funds.map(f => f.strategy))].sort();
-
-    strategies.forEach(strategy => {
-        const option = document.createElement('option');
-        option.value = strategy;
-        option.textContent = strategy;
-        filter.appendChild(option);
+    [...new Set(FUND_DATA.funds.map(f => f.strategy))].sort().forEach(s => {
+        const opt = document.createElement('option'); opt.value = s; opt.textContent = s; filter.appendChild(opt);
     });
-
-    filter.addEventListener('change', () => {
-        renderPeerTable(filter.value);
-        renderRiskReturnChart('chartRiskReturn', getFilteredStats(filter.value), selectedFundId);
-    });
+    filter.addEventListener('change', () => { renderPeerTable(filter.value); renderRiskReturnChart('chartRiskReturn', getFilteredStats(filter.value), selectedFundId); });
 }
 
-// Rankings controls
+// Rankings
 function initializeRankingsControls() {
-    const metricSelect = document.getElementById('rankingMetric');
-    const orderSelect = document.getElementById('rankingOrder');
+    const metric = document.getElementById('rankingMetric'), order = document.getElementById('rankingOrder');
+    const update = () => {
+        document.getElementById('rankingChartTitle').textContent = `Fund Rankings by ${getMetricLabel(metric.value)}`;
+        renderRankingsChart('chartRankings', allFundsStats, metric.value, order.value);
+        renderRankingsTable(metric.value, order.value);
+    };
+    metric.addEventListener('change', update);
+    order.addEventListener('change', update);
+}
 
-    const updateRankings = () => {
-        const metric = metricSelect.value;
-        const order = orderSelect.value;
+// Compare Tab
+function initializeCompareTab() {
+    const container = document.getElementById('compareCheckboxes');
+    FUND_DATA.funds.forEach(fund => {
+        const label = document.createElement('label');
+        label.className = 'compare-checkbox';
+        label.innerHTML = `<input type="checkbox" value="${fund.id}" ${fund.id < 2 ? 'checked' : ''}> ${fund.name}`;
+        container.appendChild(label);
+    });
+    document.getElementById('updateComparison').addEventListener('click', updateComparison);
+}
 
-        document.getElementById('rankingChartTitle').textContent =
-            `Fund Rankings by ${getMetricLabel(metric)}`;
+function updateComparison() {
+    const checked = [...document.querySelectorAll('#compareCheckboxes input:checked')].map(c => parseInt(c.value)).slice(0, 5);
+    if (checked.length < 2) return alert('Select at least 2 funds');
+    selectedCompare = checked;
+    renderComparisonPerformance('chartComparePerformance', checked);
+    renderComparisonDrawdown('chartCompareDrawdown', checked);
+    renderComparisonRolling('chartCompareRolling', checked);
+    renderCompareStatsTable(checked);
+}
 
-        renderRankingsChart('chartRankings', allFundsStats, metric, order);
-        renderRankingsTable(metric, order);
+function renderCompareStatsTable(fundIds) {
+    const table = document.getElementById('compareStatsTable');
+    const metrics = ['annReturn', 'annVol', 'sharpe', 'sortino', 'maxDD', 'calmar', 'beta'];
+    const labels = { annReturn: 'Ann. Return', annVol: 'Ann. Vol', sharpe: 'Sharpe', sortino: 'Sortino', maxDD: 'Max DD', calmar: 'Calmar', beta: 'Beta' };
+    table.querySelector('thead').innerHTML = '<tr><th>Metric</th>' + fundIds.map(id => `<th>${FUND_DATA.funds[id].name.split(' ').slice(0,2).join(' ')}</th>`).join('') + '</tr>';
+    table.querySelector('tbody').innerHTML = metrics.map(m => {
+        return '<tr><td>' + labels[m] + '</td>' + fundIds.map(id => {
+            const v = allFundsStats[id][m];
+            return `<td>${['annReturn','annVol','maxDD'].includes(m) ? formatPercent(v) : formatNumber(v)}</td>`;
+        }).join('') + '</tr>';
+    }).join('');
+}
+
+// Correlation Tab
+function initializeCorrelationTab() {
+    document.getElementById('correlationPeriod').addEventListener('change', (e) => renderCorrelationMatrix('chartCorrelationMatrix', e.target.value));
+}
+
+// Portfolio Builder
+function initializePortfolioBuilder() {
+    const container = document.getElementById('portfolioAllocations');
+    FUND_DATA.funds.forEach(fund => {
+        const div = document.createElement('div');
+        div.className = 'allocation-input';
+        div.innerHTML = `<label>${fund.name.split(' ').slice(0,2).join(' ')}</label><input type="number" min="0" max="100" value="0" data-fund="${fund.id}">%`;
+        container.appendChild(div);
+        portfolioWeights[fund.id] = 0;
+    });
+
+    container.addEventListener('input', () => {
+        let total = 0;
+        container.querySelectorAll('input').forEach(inp => { portfolioWeights[inp.dataset.fund] = parseFloat(inp.value) || 0; total += portfolioWeights[inp.dataset.fund]; });
+        const el = document.getElementById('totalAllocation');
+        el.textContent = total.toFixed(0) + '%';
+        el.className = 'allocation-total' + (total === 100 ? '' : total > 100 ? ' error' : ' warning');
+    });
+
+    document.getElementById('equalWeight').addEventListener('click', () => {
+        const n = FUND_DATA.funds.length, w = (100 / n).toFixed(1);
+        container.querySelectorAll('input').forEach(inp => inp.value = w);
+        container.dispatchEvent(new Event('input'));
+    });
+
+    document.getElementById('optimizeSharpe').addEventListener('click', () => {
+        const returns = FUND_DATA.funds.map(f => f.dailyReturns);
+        const weights = optimizeForSharpe(returns);
+        container.querySelectorAll('input').forEach((inp, i) => inp.value = (weights[i] * 100).toFixed(1));
+        container.dispatchEvent(new Event('input'));
+    });
+
+    document.getElementById('riskParity').addEventListener('click', () => {
+        const returns = FUND_DATA.funds.map(f => f.dailyReturns);
+        const weights = riskParityWeights(returns);
+        container.querySelectorAll('input').forEach((inp, i) => inp.value = (weights[i] * 100).toFixed(1));
+        container.dispatchEvent(new Event('input'));
+    });
+
+    document.getElementById('optimizeMinVol').addEventListener('click', () => {
+        const returns = FUND_DATA.funds.map(f => f.dailyReturns);
+        const weights = minVolatilityWeights(returns);
+        container.querySelectorAll('input').forEach((inp, i) => inp.value = (weights[i] * 100).toFixed(1));
+        container.dispatchEvent(new Event('input'));
+    });
+
+    document.getElementById('calculatePortfolio').addEventListener('click', calculatePortfolio);
+}
+
+function calculatePortfolio() {
+    const weights = FUND_DATA.funds.map((_, i) => (portfolioWeights[i] || 0) / 100);
+    const total = weights.reduce((a, b) => a + b, 0);
+    if (Math.abs(total - 1) > 0.01) return alert('Weights must sum to 100%');
+
+    const returns = FUND_DATA.funds.map(f => f.dailyReturns);
+    const portRets = portfolioReturn(weights, returns);
+    const portStats = {
+        ret: annualizedReturn(portRets),
+        vol: annualizedVolatility(portRets),
+        sharpe: sharpeRatio(portRets),
+        maxDD: maxDrawdown(portRets)
     };
 
-    metricSelect.addEventListener('change', updateRankings);
-    orderSelect.addEventListener('change', updateRankings);
+    document.getElementById('portfolioReturn').textContent = formatPercent(portStats.ret);
+    document.getElementById('portfolioVol').textContent = formatPercent(portStats.vol);
+    document.getElementById('portfolioSharpe').textContent = formatNumber(portStats.sharpe);
+    document.getElementById('portfolioMaxDD').textContent = formatPercent(portStats.maxDD);
+
+    const fundIds = FUND_DATA.funds.map(f => f.id);
+    renderPortfolioPie('chartPortfolioPie', weights, fundIds);
+    renderPortfolioPerformance('chartPortfolioPerformance', portRets, FUND_DATA.dates);
+    renderEfficientFrontier('chartEfficientFrontier', portStats, allFundsStats);
+
+    document.getElementById('portfolioResults').classList.remove('hidden');
 }
 
-// Get filtered stats based on strategy
-function getFilteredStats(strategy) {
-    if (strategy === 'all') return allFundsStats;
+// Stress Testing
+function initializeStressTesting() {
+    document.getElementById('runMonteCarlo').addEventListener('click', runMonteCarlo);
+}
 
-    const filtered = {};
-    FUND_DATA.funds.forEach((fund, index) => {
-        if (fund.strategy === strategy) {
-            filtered[index] = allFundsStats[index];
-        }
+function runMonteCarlo() {
+    const fund = FUND_DATA.funds[selectedFundId];
+    const months = parseInt(document.getElementById('mcHorizon').value);
+    const sims = parseInt(document.getElementById('mcSimulations').value);
+    const results = monteCarloSimulation(fund.dailyReturns, months, sims);
+
+    document.getElementById('mcMedian').textContent = formatPercent(results.median);
+    document.getElementById('mc5th').textContent = formatPercent(results.percentile5);
+    document.getElementById('mc95th').textContent = formatPercent(results.percentile95);
+    document.getElementById('mcProbLoss').textContent = formatPercent(results.probLoss);
+
+    renderMonteCarloChart('chartMonteCarlo', results, months);
+    document.getElementById('monteCarloResults').classList.remove('hidden');
+}
+
+function updateStressScenarios(stats) {
+    const beta = stats.beta;
+    document.getElementById('stressCovid').textContent = formatPercent(beta * -0.339);
+    document.getElementById('stress2022').textContent = formatPercent(beta * -0.254);
+    document.getElementById('stressQ42018').textContent = formatPercent(beta * -0.198);
+    document.getElementById('stressCustom').textContent = formatPercent(beta * -0.20);
+
+    document.querySelectorAll('.scenario-value').forEach(el => {
+        const val = parseFloat(el.textContent);
+        el.classList.toggle('negative', val < 0);
+        el.classList.toggle('positive', val > 0);
     });
-    return filtered;
 }
 
-// Select a fund and update all views
+// Select Fund
 function selectFund(fundId) {
     selectedFundId = fundId;
     const fund = FUND_DATA.funds[fundId];
     const stats = allFundsStats[fundId];
 
-    // Update header
     document.getElementById('selectedFundName').textContent = fund.name;
     document.getElementById('headerAum').textContent = fund.aum;
     document.getElementById('headerStrategy').textContent = fund.strategy;
     document.getElementById('fundSearch').value = fund.name;
 
-    // Update overview stats
     updateOverviewStats(stats);
+    updateRiskStats(stats);
+    updateStressScenarios(stats);
 
-    // Render charts
+    // Charts
     renderCumulativeChart('chartCumulative', fund, stats);
     renderDistributionChart('chartDistribution', fund);
     renderYearlyReturnsChart('chartYearlyReturns', fund, stats);
-
-    // Render analytics charts
     renderDrawdownChart('chartDrawdown', fund);
     renderRollingReturnChart('chartRollingReturn', fund);
     renderRollingVolChart('chartRollingVol', fund);
     renderRollingSharpeChart('chartRollingSharpe', fund);
     renderRollingBetaChart('chartRollingBeta', fund);
+    renderRollingCorrelationChart('chartRollingCorrelation', fund);
+    renderVaRDistribution('chartVaRDistribution', fund, stats);
+    renderUnderwaterChart('chartUnderwater', fund);
+    renderReturnsHeatmap('chartReturnsHeatmap', stats);
 
-    // Render tables
+    // Tables
     renderMonthlyReturnsTable(stats);
     renderPeerTable(document.getElementById('strategyFilter').value);
     renderRiskReturnChart('chartRiskReturn', getFilteredStats(document.getElementById('strategyFilter').value), selectedFundId);
+    renderSharpeSortinoChart('chartSharpeSortino', allFundsStats, selectedFundId);
+    renderStrategyBoxplot('chartStrategyBoxplot', allFundsStats);
+    renderCorrelationMatrix('chartCorrelationMatrix');
 
-    // Render rankings
     const metric = document.getElementById('rankingMetric').value;
-    const order = document.getElementById('rankingOrder').value;
-    renderRankingsChart('chartRankings', allFundsStats, metric, order);
-    renderRankingsTable(metric, order);
+    renderRankingsChart('chartRankings', allFundsStats, metric, document.getElementById('rankingOrder').value);
+    renderRankingsTable(metric, document.getElementById('rankingOrder').value);
+
+    updateComparison();
 }
 
-// Update overview statistics display
 function updateOverviewStats(stats) {
     document.getElementById('statTotalReturn').textContent = formatPercent(stats.totalReturn, 1);
-    document.getElementById('statTotalReturnSub').textContent = `Since inception`;
-
+    document.getElementById('statTotalReturnSub').textContent = 'Since inception';
     document.getElementById('statAnnReturn').textContent = formatPercent(stats.annReturn, 1);
     document.getElementById('statAnnVol').textContent = formatPercent(stats.annVol, 1);
     document.getElementById('statSharpe').textContent = formatNumber(stats.sharpe, 2);
@@ -211,276 +362,109 @@ function updateOverviewStats(stats) {
     document.getElementById('statCalmar').textContent = formatNumber(stats.calmar, 2);
     document.getElementById('statWinRate').textContent = formatPercent(stats.winRate, 1);
 
-    // Color coding for return
-    const totalReturnEl = document.getElementById('statTotalReturn');
-    if (stats.totalReturn >= 0) {
-        totalReturnEl.style.color = '';
-    } else {
-        totalReturnEl.style.color = '#ef4444';
-    }
+    // Quick stats
+    document.getElementById('statBestMonth').textContent = formatPercent(stats.bestMonth, 1);
+    document.getElementById('statWorstMonth').textContent = formatPercent(stats.worstMonth, 1);
+    document.getElementById('statAvgMonth').textContent = formatPercent(stats.avgMonthlyReturn, 2);
+    document.getElementById('statPosMonths').textContent = `${stats.positiveMonths}/${stats.totalMonths}`;
+    document.getElementById('statBeta').textContent = formatNumber(stats.beta, 2);
+    document.getElementById('statCorrelation').textContent = formatNumber(stats.correlation, 2);
+
+    // Ranks
+    const ranks = Object.entries(allFundsStats).sort((a, b) => b[1].annReturn - a[1].annReturn);
+    const rank = ranks.findIndex(([id]) => parseInt(id) === selectedFundId) + 1;
+    document.getElementById('statAnnReturnRank').textContent = `Rank ${rank}/${ranks.length}`;
 }
 
-// Render monthly returns table
+function updateRiskStats(stats) {
+    document.getElementById('var95').textContent = formatPercent(stats.var95, 2);
+    document.getElementById('var99').textContent = formatPercent(stats.var99, 2);
+    document.getElementById('varMonthly95').textContent = formatPercent(stats.varMonthly95, 2);
+    document.getElementById('cvar95').textContent = formatPercent(stats.cvar95, 2);
+    document.getElementById('cvar99').textContent = formatPercent(stats.cvar99, 2);
+    document.getElementById('skewness').textContent = formatNumber(stats.skewness, 2);
+    document.getElementById('kurtosis').textContent = formatNumber(stats.kurtosis, 2);
+    document.getElementById('riskMaxDD').textContent = formatPercent(stats.maxDD, 2);
+    document.getElementById('avgDD').textContent = formatPercent(stats.avgDD, 2);
+    document.getElementById('maxDDDuration').textContent = `${stats.maxDDDuration.months}mo`;
+    document.getElementById('recoveryTime').textContent = `${stats.recoveryTime.months}mo`;
+    document.getElementById('upCapture').textContent = formatPercent(stats.upCapture, 0);
+    document.getElementById('downCapture').textContent = formatPercent(stats.downCapture, 0);
+    document.getElementById('captureRatio').textContent = formatNumber(stats.captureRatio, 2);
+    document.getElementById('worstDay').textContent = formatPercent(stats.worstDay, 2);
+    document.getElementById('bestDay').textContent = formatPercent(stats.bestDay, 2);
+    document.getElementById('daysBelow2').textContent = stats.daysBelow2Pct;
+}
+
+function getFilteredStats(strategy) {
+    if (strategy === 'all') return allFundsStats;
+    const filtered = {};
+    FUND_DATA.funds.forEach((f, i) => { if (f.strategy === strategy) filtered[i] = allFundsStats[i]; });
+    return filtered;
+}
+
 function renderMonthlyReturnsTable(stats) {
     const table = document.getElementById('monthlyReturnsTable');
-    const thead = table.querySelector('thead');
-    const tbody = table.querySelector('tbody');
-
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const years = Object.keys(stats.monthlyReturns).sort().reverse();
-
-    // Header
-    thead.innerHTML = `
-        <tr>
-            <th>Year</th>
-            ${months.map(m => `<th>${m}</th>`).join('')}
-            <th>YTD</th>
-        </tr>
-    `;
-
-    // Body
-    tbody.innerHTML = years.map(year => {
-        const yearData = stats.monthlyReturns[year];
-        const ytd = stats.ytdReturns[year];
-
-        const cells = months.map((_, monthIdx) => {
-            const value = yearData[monthIdx];
-            if (value === undefined) return '<td>-</td>';
-
-            const pct = (value * 100).toFixed(1);
-            const className = value >= 0 ? 'positive' : 'negative';
-            return `<td class="${className}">${pct}</td>`;
+    table.querySelector('thead').innerHTML = `<tr><th>Year</th>${months.map(m => `<th>${m}</th>`).join('')}<th>YTD</th></tr>`;
+    table.querySelector('tbody').innerHTML = years.map(year => {
+        const cells = months.map((_, m) => {
+            const v = stats.monthlyReturns[year][m];
+            return v !== undefined ? `<td class="${v >= 0 ? 'positive' : 'negative'}">${(v * 100).toFixed(1)}</td>` : '<td>-</td>';
         }).join('');
-
-        const ytdPct = (ytd * 100).toFixed(1);
-        const ytdClass = ytd >= 0 ? 'positive' : 'negative';
-
-        return `
-            <tr>
-                <td>${year}</td>
-                ${cells}
-                <td class="${ytdClass}">${ytdPct}</td>
-            </tr>
-        `;
+        const ytd = stats.ytdReturns[year];
+        return `<tr><td>${year}</td>${cells}<td class="${ytd >= 0 ? 'positive' : 'negative'}">${(ytd * 100).toFixed(1)}</td></tr>`;
     }).join('');
 }
 
-// Render peer comparison table
-function renderPeerTable(strategyFilter = 'all') {
+function renderPeerTable(filter = 'all') {
     const table = document.getElementById('peerTable');
-    const thead = table.querySelector('thead');
-    const tbody = table.querySelector('tbody');
+    const currentYear = new Date().getFullYear();
+    table.querySelector('thead').innerHTML = '<tr><th class="sortable">Fund</th><th>Strategy</th><th class="sortable">Ann. Return</th><th class="sortable">Ann. Vol</th><th class="sortable">Sharpe</th><th class="sortable">Sortino</th><th class="sortable">Max DD</th><th class="sortable">Calmar</th><th class="sortable">YTD</th></tr>';
 
-    // Header
-    thead.innerHTML = `
-        <tr>
-            <th class="sortable" data-col="name">Fund</th>
-            <th class="sortable" data-col="strategy">Strategy</th>
-            <th class="sortable" data-col="annReturn">Ann. Return</th>
-            <th class="sortable" data-col="annVol">Ann. Vol</th>
-            <th class="sortable" data-col="sharpe">Sharpe</th>
-            <th class="sortable" data-col="sortino">Sortino</th>
-            <th class="sortable" data-col="maxDD">Max DD</th>
-            <th class="sortable" data-col="calmar">Calmar</th>
-            <th class="sortable" data-col="ytdReturn">YTD</th>
+    const rows = FUND_DATA.funds.filter(f => filter === 'all' || f.strategy === filter).map(fund => {
+        const s = allFundsStats[fund.id];
+        return { id: fund.id, name: fund.name, strategy: fund.strategy, ...s, ytd: s.ytdReturns[currentYear] || 0 };
+    }).sort((a, b) => b.sharpe - a.sharpe);
+
+    table.querySelector('tbody').innerHTML = rows.map(r => `
+        <tr class="${r.id === selectedFundId ? 'highlight-row' : ''}" data-fund-id="${r.id}" style="cursor:pointer">
+            <td class="fund-name-cell">${r.name}</td><td>${r.strategy}</td>
+            <td class="${r.annReturn >= 0 ? 'positive' : 'negative'}">${formatPercent(r.annReturn, 1)}</td>
+            <td>${formatPercent(r.annVol, 1)}</td>
+            <td class="${r.sharpe >= 1 ? 'positive' : ''}">${formatNumber(r.sharpe, 2)}</td>
+            <td>${formatNumber(r.sortino, 2)}</td>
+            <td class="negative">${formatPercent(r.maxDD, 1)}</td>
+            <td>${formatNumber(r.calmar, 2)}</td>
+            <td class="${r.ytd >= 0 ? 'positive' : 'negative'}">${formatPercent(r.ytd, 1)}</td>
         </tr>
-    `;
+    `).join('');
 
-    // Get current year's YTD
-    const currentYear = new Date().getFullYear();
-
-    // Build rows
-    const rows = FUND_DATA.funds
-        .filter(f => strategyFilter === 'all' || f.strategy === strategyFilter)
-        .map(fund => {
-            const stats = allFundsStats[fund.id];
-            const ytd = stats.ytdReturns[currentYear] || 0;
-
-            return {
-                id: fund.id,
-                name: fund.name,
-                strategy: fund.strategy,
-                annReturn: stats.annReturn,
-                annVol: stats.annVol,
-                sharpe: stats.sharpe,
-                sortino: stats.sortino,
-                maxDD: stats.maxDD,
-                calmar: stats.calmar,
-                ytdReturn: ytd
-            };
-        });
-
-    // Sort by Sharpe by default
-    rows.sort((a, b) => b.sharpe - a.sharpe);
-
-    tbody.innerHTML = rows.map(row => {
-        const isSelected = row.id === selectedFundId;
-        return `
-            <tr class="${isSelected ? 'highlight-row' : ''}" data-fund-id="${row.id}">
-                <td class="fund-name-cell">${row.name}</td>
-                <td>${row.strategy}</td>
-                <td class="${row.annReturn >= 0 ? 'positive' : 'negative'}">${formatPercent(row.annReturn, 1)}</td>
-                <td>${formatPercent(row.annVol, 1)}</td>
-                <td class="${row.sharpe >= 1 ? 'positive' : ''}">${formatNumber(row.sharpe, 2)}</td>
-                <td class="${row.sortino >= 1 ? 'positive' : ''}">${formatNumber(row.sortino, 2)}</td>
-                <td class="negative">${formatPercent(row.maxDD, 1)}</td>
-                <td class="${row.calmar >= 1 ? 'positive' : ''}">${formatNumber(row.calmar, 2)}</td>
-                <td class="${row.ytdReturn >= 0 ? 'positive' : 'negative'}">${formatPercent(row.ytdReturn, 1)}</td>
-            </tr>
-        `;
-    }).join('');
-
-    // Add click handlers
-    tbody.querySelectorAll('tr').forEach(row => {
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', () => {
-            const fundId = parseInt(row.dataset.fundId);
-            selectFund(fundId);
-        });
-    });
-
-    // Add sort handlers
-    thead.querySelectorAll('.sortable').forEach(th => {
-        th.addEventListener('click', () => {
-            sortPeerTable(th.dataset.col);
-        });
+    table.querySelector('tbody').querySelectorAll('tr').forEach(row => {
+        row.addEventListener('click', () => selectFund(parseInt(row.dataset.fundId)));
     });
 }
 
-// Sort peer table
-let currentSort = { col: 'sharpe', dir: 'desc' };
-
-function sortPeerTable(col) {
-    const thead = document.querySelector('#peerTable thead');
-    const tbody = document.querySelector('#peerTable tbody');
-
-    // Toggle direction if same column
-    if (currentSort.col === col) {
-        currentSort.dir = currentSort.dir === 'desc' ? 'asc' : 'desc';
-    } else {
-        currentSort.col = col;
-        currentSort.dir = 'desc';
-    }
-
-    // Update header classes
-    thead.querySelectorAll('.sortable').forEach(th => {
-        th.classList.remove('sort-asc', 'sort-desc');
-        if (th.dataset.col === col) {
-            th.classList.add(currentSort.dir === 'asc' ? 'sort-asc' : 'sort-desc');
-        }
-    });
-
-    // Sort rows
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    rows.sort((a, b) => {
-        const aVal = getCellValue(a, col);
-        const bVal = getCellValue(b, col);
-
-        if (typeof aVal === 'string') {
-            return currentSort.dir === 'asc'
-                ? aVal.localeCompare(bVal)
-                : bVal.localeCompare(aVal);
-        }
-
-        return currentSort.dir === 'asc' ? aVal - bVal : bVal - aVal;
-    });
-
-    rows.forEach(row => tbody.appendChild(row));
-}
-
-function getCellValue(row, col) {
-    const fundId = parseInt(row.dataset.fundId);
-    const fund = FUND_DATA.funds[fundId];
-    const stats = allFundsStats[fundId];
-    const currentYear = new Date().getFullYear();
-
-    switch (col) {
-        case 'name': return fund.name;
-        case 'strategy': return fund.strategy;
-        case 'annReturn': return stats.annReturn;
-        case 'annVol': return stats.annVol;
-        case 'sharpe': return stats.sharpe;
-        case 'sortino': return stats.sortino;
-        case 'maxDD': return stats.maxDD;
-        case 'calmar': return stats.calmar;
-        case 'ytdReturn': return stats.ytdReturns[currentYear] || 0;
-        default: return 0;
-    }
-}
-
-// Render rankings table
 function renderRankingsTable(metric, order) {
     const table = document.getElementById('rankingsTable');
-    const thead = table.querySelector('thead');
-    const tbody = table.querySelector('tbody');
     const currentYear = new Date().getFullYear();
+    table.querySelector('thead').innerHTML = '<tr><th>Rank</th><th>Fund</th><th>Strategy</th><th>' + getMetricLabel(metric) + '</th></tr>';
 
-    thead.innerHTML = `
-        <tr>
-            <th>Rank</th>
-            <th>Fund</th>
-            <th>Strategy</th>
-            <th>${getMetricLabel(metric)}</th>
+    const data = FUND_DATA.funds.map(f => {
+        const s = allFundsStats[f.id];
+        return { id: f.id, name: f.name, strategy: f.strategy, value: metric === 'ytdReturn' ? (s.ytdReturns[currentYear] || 0) : s[metric] };
+    }).sort((a, b) => order === 'desc' ? b.value - a.value : a.value - b.value);
+
+    const isPct = ['annReturn', 'annVol', 'maxDD', 'ytdReturn'].includes(metric);
+    table.querySelector('tbody').innerHTML = data.map((r, i) => `
+        <tr class="${r.id === selectedFundId ? 'highlight-row' : ''}" data-fund-id="${r.id}" style="cursor:pointer">
+            <td>${i + 1}</td><td class="fund-name-cell">${r.name}</td><td>${r.strategy}</td>
+            <td>${isPct ? formatPercent(r.value, 2) : formatNumber(r.value, 2)}</td>
         </tr>
-    `;
+    `).join('');
 
-    const data = FUND_DATA.funds.map(fund => {
-        const stats = allFundsStats[fund.id];
-        let value = stats[metric];
-
-        if (metric === 'ytdReturn') {
-            value = stats.ytdReturns[currentYear] || 0;
-        }
-
-        return {
-            id: fund.id,
-            name: fund.name,
-            strategy: fund.strategy,
-            value: value
-        };
+    table.querySelector('tbody').querySelectorAll('tr').forEach(row => {
+        row.addEventListener('click', () => selectFund(parseInt(row.dataset.fundId)));
     });
-
-    data.sort((a, b) => order === 'desc' ? b.value - a.value : a.value - b.value);
-
-    const formatSuffix = ['annReturn', 'annVol', 'maxDD', 'ytdReturn', 'totalReturn'].includes(metric);
-
-    tbody.innerHTML = data.map((row, index) => {
-        const isSelected = row.id === selectedFundId;
-        const displayValue = formatSuffix
-            ? formatPercent(row.value, 2)
-            : formatNumber(row.value, 2);
-
-        return `
-            <tr class="${isSelected ? 'highlight-row' : ''}" data-fund-id="${row.id}">
-                <td>${index + 1}</td>
-                <td class="fund-name-cell">${row.name}</td>
-                <td>${row.strategy}</td>
-                <td>${displayValue}</td>
-            </tr>
-        `;
-    }).join('');
-
-    // Add click handlers
-    tbody.querySelectorAll('tr').forEach(row => {
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', () => {
-            const fundId = parseInt(row.dataset.fundId);
-            selectFund(fundId);
-        });
-    });
-}
-
-// Helper function (also in charts.js but needed here)
-function getMetricLabel(metric) {
-    const labels = {
-        annReturn: 'Annualized Return',
-        annVol: 'Annualized Volatility',
-        sharpe: 'Sharpe Ratio',
-        sortino: 'Sortino Ratio',
-        maxDD: 'Max Drawdown',
-        calmar: 'Calmar Ratio',
-        ytdReturn: 'YTD Return',
-        totalReturn: 'Total Return'
-    };
-    return labels[metric] || metric;
 }

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -37,13 +37,33 @@
                     <span class="tab-icon">▤</span>
                     Returns Table
                 </button>
+                <button class="nav-tab" data-tab="risk">
+                    <span class="tab-icon">⚠</span>
+                    Risk Analysis
+                </button>
                 <button class="nav-tab" data-tab="charts">
                     <span class="tab-icon">◔</span>
                     Analytics
                 </button>
+                <button class="nav-tab" data-tab="compare">
+                    <span class="tab-icon">⇄</span>
+                    Compare Funds
+                </button>
+                <button class="nav-tab" data-tab="correlation">
+                    <span class="tab-icon">▦</span>
+                    Correlations
+                </button>
                 <button class="nav-tab" data-tab="peers">
                     <span class="tab-icon">◫</span>
                     Peer Analysis
+                </button>
+                <button class="nav-tab" data-tab="portfolio">
+                    <span class="tab-icon">◈</span>
+                    Portfolio Builder
+                </button>
+                <button class="nav-tab" data-tab="stress">
+                    <span class="tab-icon">⚡</span>
+                    Stress Testing
                 </button>
                 <button class="nav-tab" data-tab="rankings">
                     <span class="tab-icon">▥</span>
@@ -52,6 +72,12 @@
             </nav>
 
             <div class="sidebar-footer">
+                <div class="theme-toggle">
+                    <button id="themeToggle" class="theme-btn" title="Toggle dark mode">
+                        <span class="theme-icon-light">☀</span>
+                        <span class="theme-icon-dark">☾</span>
+                    </button>
+                </div>
                 <div class="data-info">
                     <span>Data as of</span>
                     <strong id="dataDate"></strong>
@@ -66,7 +92,29 @@
                     <h1 id="pageTitle">Fund Overview</h1>
                     <span id="selectedFundName" class="selected-fund"></span>
                 </div>
+                <div class="header-center">
+                    <div class="date-range-picker">
+                        <label>Analysis Period:</label>
+                        <select id="dateRangeSelect">
+                            <option value="all">All Time</option>
+                            <option value="ytd">Year to Date</option>
+                            <option value="1y">1 Year</option>
+                            <option value="3y">3 Years</option>
+                            <option value="5y">5 Years</option>
+                            <option value="custom">Custom Range</option>
+                        </select>
+                        <div id="customDateRange" class="custom-date-range hidden">
+                            <input type="date" id="startDate">
+                            <span>to</span>
+                            <input type="date" id="endDate">
+                            <button id="applyDateRange" class="btn-small">Apply</button>
+                        </div>
+                    </div>
+                </div>
                 <div class="header-right">
+                    <button id="exportBtn" class="btn-export" title="Export data">
+                        <span>⬇</span> Export
+                    </button>
                     <div class="header-stat">
                         <span class="stat-label">AUM</span>
                         <span id="headerAum" class="stat-value">-</span>
@@ -77,6 +125,40 @@
                     </div>
                 </div>
             </header>
+
+            <!-- Export Modal -->
+            <div id="exportModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Export Data</h2>
+                        <button class="modal-close" onclick="closeExportModal()">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="export-options">
+                            <button onclick="exportToCSV('returns')" class="export-option">
+                                <span class="export-icon">📊</span>
+                                <span class="export-label">Monthly Returns (CSV)</span>
+                            </button>
+                            <button onclick="exportToCSV('stats')" class="export-option">
+                                <span class="export-icon">📈</span>
+                                <span class="export-label">Statistics Summary (CSV)</span>
+                            </button>
+                            <button onclick="exportToCSV('daily')" class="export-option">
+                                <span class="export-icon">📅</span>
+                                <span class="export-label">Daily Returns (CSV)</span>
+                            </button>
+                            <button onclick="exportToCSV('peer')" class="export-option">
+                                <span class="export-icon">👥</span>
+                                <span class="export-label">Peer Comparison (CSV)</span>
+                            </button>
+                            <button onclick="window.print()" class="export-option">
+                                <span class="export-icon">🖨</span>
+                                <span class="export-label">Print Report</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <!-- Overview Tab -->
             <section id="tab-overview" class="tab-content active">
@@ -89,14 +171,17 @@
                     <div class="stat-card">
                         <div class="stat-card-label">Annualized Return</div>
                         <div id="statAnnReturn" class="stat-card-value">-</div>
+                        <div class="stat-card-sub" id="statAnnReturnRank"></div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-card-label">Annualized Volatility</div>
                         <div id="statAnnVol" class="stat-card-value">-</div>
+                        <div class="stat-card-sub" id="statAnnVolRank"></div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-card-label">Sharpe Ratio</div>
                         <div id="statSharpe" class="stat-card-value">-</div>
+                        <div class="stat-card-sub" id="statSharpeRank"></div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-card-label">Sortino Ratio</div>
@@ -119,7 +204,10 @@
 
                 <div class="chart-row">
                     <div class="chart-container full-width">
-                        <h3>Cumulative Performance</h3>
+                        <div class="chart-header">
+                            <h3>Cumulative Performance</h3>
+                            <div class="chart-legend" id="cumulativeLegend"></div>
+                        </div>
                         <div id="chartCumulative" class="chart"></div>
                     </div>
                 </div>
@@ -134,18 +222,178 @@
                         <div id="chartYearlyReturns" class="chart"></div>
                     </div>
                 </div>
+
+                <!-- Quick Stats Row -->
+                <div class="quick-stats-row">
+                    <div class="quick-stat">
+                        <span class="quick-stat-label">Best Month</span>
+                        <span id="statBestMonth" class="quick-stat-value positive">-</span>
+                    </div>
+                    <div class="quick-stat">
+                        <span class="quick-stat-label">Worst Month</span>
+                        <span id="statWorstMonth" class="quick-stat-value negative">-</span>
+                    </div>
+                    <div class="quick-stat">
+                        <span class="quick-stat-label">Avg Monthly Return</span>
+                        <span id="statAvgMonth" class="quick-stat-value">-</span>
+                    </div>
+                    <div class="quick-stat">
+                        <span class="quick-stat-label">Positive Months</span>
+                        <span id="statPosMonths" class="quick-stat-value">-</span>
+                    </div>
+                    <div class="quick-stat">
+                        <span class="quick-stat-label">Beta to S&P</span>
+                        <span id="statBeta" class="quick-stat-value">-</span>
+                    </div>
+                    <div class="quick-stat">
+                        <span class="quick-stat-label">Correlation to S&P</span>
+                        <span id="statCorrelation" class="quick-stat-value">-</span>
+                    </div>
+                </div>
             </section>
 
             <!-- Returns Table Tab -->
             <section id="tab-returns" class="tab-content">
                 <div class="table-controls">
                     <div class="table-title">Monthly Returns (%)</div>
+                    <div class="table-actions">
+                        <button onclick="exportToCSV('returns')" class="btn-small">Export CSV</button>
+                    </div>
                 </div>
                 <div class="table-wrapper">
                     <table id="monthlyReturnsTable" class="data-table returns-table">
                         <thead></thead>
                         <tbody></tbody>
                     </table>
+                </div>
+
+                <div class="returns-heatmap-section">
+                    <h3>Returns Heatmap</h3>
+                    <div id="chartReturnsHeatmap" class="chart"></div>
+                </div>
+            </section>
+
+            <!-- Risk Analysis Tab -->
+            <section id="tab-risk" class="tab-content">
+                <div class="risk-metrics-grid">
+                    <div class="risk-card">
+                        <h4>Value at Risk (VaR)</h4>
+                        <div class="risk-metrics">
+                            <div class="risk-metric">
+                                <span class="risk-label">95% Daily VaR</span>
+                                <span id="var95" class="risk-value negative">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">99% Daily VaR</span>
+                                <span id="var99" class="risk-value negative">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">95% Monthly VaR</span>
+                                <span id="varMonthly95" class="risk-value negative">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="risk-card">
+                        <h4>Expected Shortfall (CVaR)</h4>
+                        <div class="risk-metrics">
+                            <div class="risk-metric">
+                                <span class="risk-label">95% CVaR</span>
+                                <span id="cvar95" class="risk-value negative">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">99% CVaR</span>
+                                <span id="cvar99" class="risk-value negative">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="risk-card">
+                        <h4>Distribution Metrics</h4>
+                        <div class="risk-metrics">
+                            <div class="risk-metric">
+                                <span class="risk-label">Skewness</span>
+                                <span id="skewness" class="risk-value">-</span>
+                                <span class="risk-tooltip" title="Negative skew = more left tail risk">ⓘ</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">Kurtosis</span>
+                                <span id="kurtosis" class="risk-value">-</span>
+                                <span class="risk-tooltip" title="Higher = fatter tails">ⓘ</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="risk-card">
+                        <h4>Drawdown Analysis</h4>
+                        <div class="risk-metrics">
+                            <div class="risk-metric">
+                                <span class="risk-label">Max Drawdown</span>
+                                <span id="riskMaxDD" class="risk-value negative">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">Avg Drawdown</span>
+                                <span id="avgDD" class="risk-value negative">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">Max DD Duration</span>
+                                <span id="maxDDDuration" class="risk-value">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">Recovery Time</span>
+                                <span id="recoveryTime" class="risk-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="risk-card">
+                        <h4>Capture Ratios</h4>
+                        <div class="risk-metrics">
+                            <div class="risk-metric">
+                                <span class="risk-label">Up Capture</span>
+                                <span id="upCapture" class="risk-value">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">Down Capture</span>
+                                <span id="downCapture" class="risk-value">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">Capture Ratio</span>
+                                <span id="captureRatio" class="risk-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="risk-card">
+                        <h4>Tail Risk</h4>
+                        <div class="risk-metrics">
+                            <div class="risk-metric">
+                                <span class="risk-label">Worst Day</span>
+                                <span id="worstDay" class="risk-value negative">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">Best Day</span>
+                                <span id="bestDay" class="risk-value positive">-</span>
+                            </div>
+                            <div class="risk-metric">
+                                <span class="risk-label">Days Below -2%</span>
+                                <span id="daysBelow2" class="risk-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-container half-width">
+                        <h3>Return Distribution with VaR</h3>
+                        <div id="chartVaRDistribution" class="chart"></div>
+                    </div>
+                    <div class="chart-container half-width">
+                        <h3>Underwater Chart (Time in Drawdown)</h3>
+                        <div id="chartUnderwater" class="chart"></div>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-container full-width">
+                        <h3>Drawdown Periods Analysis</h3>
+                        <div id="chartDrawdownPeriods" class="chart tall"></div>
+                    </div>
                 </div>
             </section>
 
@@ -177,6 +425,91 @@
                         <div id="chartRollingBeta" class="chart"></div>
                     </div>
                 </div>
+                <div class="chart-row">
+                    <div class="chart-container full-width">
+                        <h3>Rolling Correlation to S&P 500</h3>
+                        <div id="chartRollingCorrelation" class="chart"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Compare Funds Tab -->
+            <section id="tab-compare" class="tab-content">
+                <div class="compare-controls">
+                    <div class="compare-selector">
+                        <label>Select Funds to Compare (up to 5):</label>
+                        <div id="compareCheckboxes" class="compare-checkboxes"></div>
+                    </div>
+                    <button id="updateComparison" class="btn-primary">Update Comparison</button>
+                </div>
+
+                <div id="comparisonContent" class="comparison-content">
+                    <div class="chart-row">
+                        <div class="chart-container full-width">
+                            <h3>Cumulative Performance Comparison</h3>
+                            <div id="chartComparePerformance" class="chart"></div>
+                        </div>
+                    </div>
+
+                    <div class="compare-stats-table">
+                        <h3>Side-by-Side Statistics</h3>
+                        <div class="table-wrapper">
+                            <table id="compareStatsTable" class="data-table">
+                                <thead></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="chart-row">
+                        <div class="chart-container half-width">
+                            <h3>Rolling Returns Comparison</h3>
+                            <div id="chartCompareRolling" class="chart"></div>
+                        </div>
+                        <div class="chart-container half-width">
+                            <h3>Drawdown Comparison</h3>
+                            <div id="chartCompareDrawdown" class="chart"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Correlation Tab -->
+            <section id="tab-correlation" class="tab-content">
+                <div class="correlation-controls">
+                    <div class="control-group">
+                        <label>Time Period:</label>
+                        <select id="correlationPeriod">
+                            <option value="all">All Time</option>
+                            <option value="1y">1 Year</option>
+                            <option value="3y">3 Years</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-container full-width">
+                        <h3>Correlation Matrix Heatmap</h3>
+                        <div id="chartCorrelationMatrix" class="chart tall"></div>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-container full-width">
+                        <h3>Hierarchical Clustering (Dendrogram)</h3>
+                        <div id="chartDendrogram" class="chart"></div>
+                    </div>
+                </div>
+
+                <div class="correlation-table-section">
+                    <h3>Correlation Table</h3>
+                    <div class="table-wrapper correlation-table-wrapper">
+                        <table id="correlationTable" class="data-table correlation-table">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
 
             <!-- Peer Analysis Tab -->
@@ -198,9 +531,192 @@
                 </div>
 
                 <div class="chart-row" style="margin-top: 2rem;">
-                    <div class="chart-container full-width">
+                    <div class="chart-container half-width">
                         <h3>Risk-Return Scatter</h3>
                         <div id="chartRiskReturn" class="chart"></div>
+                    </div>
+                    <div class="chart-container half-width">
+                        <h3>Sharpe vs Sortino</h3>
+                        <div id="chartSharpeSortino" class="chart"></div>
+                    </div>
+                </div>
+
+                <div class="chart-row">
+                    <div class="chart-container full-width">
+                        <h3>Strategy Performance Comparison</h3>
+                        <div id="chartStrategyBoxplot" class="chart"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Portfolio Builder Tab -->
+            <section id="tab-portfolio" class="tab-content">
+                <div class="portfolio-builder">
+                    <div class="portfolio-controls">
+                        <h3>Build Your Portfolio</h3>
+                        <p class="portfolio-description">Select funds and allocate weights to create a custom portfolio. The optimizer can help find optimal weights.</p>
+
+                        <div class="portfolio-allocation">
+                            <div id="portfolioAllocations" class="allocation-inputs"></div>
+                            <div class="allocation-summary">
+                                <span>Total Allocation: </span>
+                                <span id="totalAllocation" class="allocation-total">0%</span>
+                            </div>
+                        </div>
+
+                        <div class="portfolio-actions">
+                            <button id="equalWeight" class="btn-secondary">Equal Weight</button>
+                            <button id="optimizeSharpe" class="btn-secondary">Optimize for Sharpe</button>
+                            <button id="optimizeMinVol" class="btn-secondary">Minimum Volatility</button>
+                            <button id="riskParity" class="btn-secondary">Risk Parity</button>
+                            <button id="calculatePortfolio" class="btn-primary">Calculate Portfolio</button>
+                        </div>
+                    </div>
+
+                    <div id="portfolioResults" class="portfolio-results hidden">
+                        <div class="portfolio-stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-card-label">Portfolio Return</div>
+                                <div id="portfolioReturn" class="stat-card-value">-</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-card-label">Portfolio Volatility</div>
+                                <div id="portfolioVol" class="stat-card-value">-</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-card-label">Portfolio Sharpe</div>
+                                <div id="portfolioSharpe" class="stat-card-value">-</div>
+                            </div>
+                            <div class="stat-card negative">
+                                <div class="stat-card-label">Portfolio Max DD</div>
+                                <div id="portfolioMaxDD" class="stat-card-value">-</div>
+                            </div>
+                        </div>
+
+                        <div class="chart-row">
+                            <div class="chart-container half-width">
+                                <h3>Portfolio Allocation</h3>
+                                <div id="chartPortfolioPie" class="chart"></div>
+                            </div>
+                            <div class="chart-container half-width">
+                                <h3>Portfolio Performance</h3>
+                                <div id="chartPortfolioPerformance" class="chart"></div>
+                            </div>
+                        </div>
+
+                        <div class="chart-row">
+                            <div class="chart-container full-width">
+                                <h3>Efficient Frontier</h3>
+                                <div id="chartEfficientFrontier" class="chart"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stress Testing Tab -->
+            <section id="tab-stress" class="tab-content">
+                <div class="stress-testing">
+                    <div class="stress-controls">
+                        <h3>Historical Stress Scenarios</h3>
+                        <p class="stress-description">See how the fund would have performed during historical market crises.</p>
+                    </div>
+
+                    <div class="stress-scenarios-grid">
+                        <div class="stress-scenario" data-scenario="covid">
+                            <h4>COVID-19 Crash</h4>
+                            <span class="scenario-date">Feb-Mar 2020</span>
+                            <div class="scenario-result">
+                                <span class="scenario-label">Fund Return:</span>
+                                <span id="stressCovid" class="scenario-value">-</span>
+                            </div>
+                            <div class="scenario-result">
+                                <span class="scenario-label">S&P 500:</span>
+                                <span class="scenario-benchmark">-33.9%</span>
+                            </div>
+                        </div>
+                        <div class="stress-scenario" data-scenario="2022">
+                            <h4>2022 Bear Market</h4>
+                            <span class="scenario-date">Jan-Oct 2022</span>
+                            <div class="scenario-result">
+                                <span class="scenario-label">Fund Return:</span>
+                                <span id="stress2022" class="scenario-value">-</span>
+                            </div>
+                            <div class="scenario-result">
+                                <span class="scenario-label">S&P 500:</span>
+                                <span class="scenario-benchmark">-25.4%</span>
+                            </div>
+                        </div>
+                        <div class="stress-scenario" data-scenario="q4-2018">
+                            <h4>Q4 2018 Selloff</h4>
+                            <span class="scenario-date">Oct-Dec 2018</span>
+                            <div class="scenario-result">
+                                <span class="scenario-label">Fund Return:</span>
+                                <span id="stressQ42018" class="scenario-value">-</span>
+                            </div>
+                            <div class="scenario-result">
+                                <span class="scenario-label">S&P 500:</span>
+                                <span class="scenario-benchmark">-19.8%</span>
+                            </div>
+                        </div>
+                        <div class="stress-scenario" data-scenario="custom">
+                            <h4>Volatility Spike</h4>
+                            <span class="scenario-date">Hypothetical</span>
+                            <div class="scenario-result">
+                                <span class="scenario-label">-20% S&P Move:</span>
+                                <span id="stressCustom" class="scenario-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="monte-carlo-section">
+                        <h3>Monte Carlo Simulation</h3>
+                        <p class="stress-description">Project potential future outcomes based on historical return distribution.</p>
+
+                        <div class="monte-carlo-controls">
+                            <div class="control-group">
+                                <label>Time Horizon:</label>
+                                <select id="mcHorizon">
+                                    <option value="12">1 Year</option>
+                                    <option value="36">3 Years</option>
+                                    <option value="60">5 Years</option>
+                                </select>
+                            </div>
+                            <div class="control-group">
+                                <label>Simulations:</label>
+                                <select id="mcSimulations">
+                                    <option value="100">100</option>
+                                    <option value="500" selected>500</option>
+                                    <option value="1000">1,000</option>
+                                </select>
+                            </div>
+                            <button id="runMonteCarlo" class="btn-primary">Run Simulation</button>
+                        </div>
+
+                        <div id="monteCarloResults" class="monte-carlo-results hidden">
+                            <div class="mc-stats-grid">
+                                <div class="mc-stat">
+                                    <span class="mc-label">Median Return</span>
+                                    <span id="mcMedian" class="mc-value">-</span>
+                                </div>
+                                <div class="mc-stat">
+                                    <span class="mc-label">5th Percentile</span>
+                                    <span id="mc5th" class="mc-value negative">-</span>
+                                </div>
+                                <div class="mc-stat">
+                                    <span class="mc-label">95th Percentile</span>
+                                    <span id="mc95th" class="mc-value positive">-</span>
+                                </div>
+                                <div class="mc-stat">
+                                    <span class="mc-label">Prob. of Loss</span>
+                                    <span id="mcProbLoss" class="mc-value">-</span>
+                                </div>
+                            </div>
+                            <div class="chart-container full-width">
+                                <h3>Simulation Results</h3>
+                                <div id="chartMonteCarlo" class="chart tall"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
